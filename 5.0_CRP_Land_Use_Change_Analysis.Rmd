@@ -1,0 +1,616 @@
+---
+title: "UML"
+output: html_document
+date: "2024-05-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+```
+
+```{r}
+df <- read.csv("CRP_data.csv")
+```
+
+```{r}
+names(df)
+```
+
+```{r}
+unique(illinoisdf$County.FSA.Code)
+```
+
+
+```{r}
+# Extract Illinois data
+illinoisdf <- df[df$State.FSA.Code == 17,]
+illinoisdf$Payment.Date <- as.Date(illinoisdf$Payment.Date)
+illinoisdf$Year <- format(illinoisdf$Payment.Date, "%Y")
+```
+
+```{r}
+library(dplyr)
+
+# Calculate total payment by county
+illinoisdf <- illinoisdf %>%
+  group_by(County.FSA.Code, Year) %>%
+  mutate(Total.Disbursement = sum(Disbursement.Amount)) %>%
+  ungroup()
+```
+
+```{r}
+names(illinoisdf)
+```
+
+```{r}
+illinoisdf_unique <- illinoisdf %>%
+  distinct(County.FSA.Code, Year, .keep_all = TRUE)%>%
+  select(County.FSA.Code, County.FSA.Name, Year, Total.Disbursement)
+```
+
+```{r}
+# Crate FIPS for CDL data extraction
+illinoisdf_unique$FIPS <- paste0("17", sprintf("%03d", illinoisdf_unique$County.FSA.Code))
+illinoisdf_unique$Year <- as.numeric(illinoisdf_unique$Year)
+```
+
+
+```{r}
+# Extract CDL data
+
+# Load necessary libraries
+library(CropScapeR)
+library(dplyr)
+library(tidyr)
+
+# Define the list of AOIs (counties) and the range of years
+aoi_list <- c("17001", "17003", "17005", "17007", "17009", "17011", "17013", "17015", "17017", "17019",
+              "17021", "17023", "17025", "17027", "17029", "17033", "17035", "17037", "17039", "17041",
+              "17045", "17047", "17049", "17051", "17053", "17055", "17057", "17059", "17061", "17063",
+              "17065", "17067", "17069", "17071", "17073", "17075", "17077", "17079", "17081", "17083",
+              "17085", "17087", "17089", "17091", "17093", "17095", "17099", "17101", "17103", "17105",
+              "17107", "17109", "17111", "17113", "17115", "17117", "17119", "17121", "17123", "17125",
+              "17127", "17129", "17131", "17133", "17135", "17137", "17139", "17141", "17143", "17145",
+              "17147", "17149", "17151", "17153", "17155", "17157", "17159", "17161", "17163", "17165",
+              "17167", "17169", "17171", "17173", "17175", "17177", "17179", "17181", "17183", "17185",
+              "17187", "17189", "17191", "17193", "17195", "17197", "17199", "17201", "17203")
+year_start <- 2008
+year_end <- 2022
+
+# Initialize an empty data frame to hold all the results
+all_data <- data.frame()
+
+# Loop over each AOI and year combination
+for (aoi in aoi_list) {
+  for (year1 in year_start:year_end) {
+    # Fetch the data using the GetCDLComp function
+    data <- GetCDLComp(aoi = aoi, year1 = year1, year2 = year1 + 1, type = "f")
+    data$Year <- year1  # Add the year column
+    data$aoi <- aoi     # Add the AOI column for clarity
+
+    # Create the From_To combination
+    data <- data %>%
+      mutate(From_To = paste(From, To, sep = "_"))
+
+    # Select the relevant columns
+    data <- data %>%
+      select(From_To, Acreage, aoi, Year)
+
+    # Append to the overall dataset
+    all_data <- bind_rows(all_data, data)
+  }
+}
+
+write.csv(all_data, "land_use_change.csv", row.names = FALSE)
+
+# Pivot the overall dataset to wide format
+landuse_wide <- all_data %>%
+  pivot_wider(names_from = From_To, values_from = Acreage)
+```
+
+```{r}
+landuse_wide_nona1 <- landuse_wide[, colSums(is.na(landuse_wide)) <= 200]
+landuse_wide_nona2 <- landuse_wide_nona1[rowSums(is.na(landuse_wide_nona1)) <= 0, ]
+#write.csv(landuse_wide_nona2, "land_use_change_nona.csv", row.names = FALSE)
+```
+
+```{r}
+# Select the numerical columns excluding 'aoi' and 'Year'
+pca_data <- landuse_wide_nona2[, !(names(landuse_wide_nona2) %in% c("aoi", "Year"))]
+
+# Ensure the data is numerical
+pca_data <- data.matrix(pca_data)
+
+# Standardize the data before PCA
+pca_data_standardized <- scale(pca_data)
+
+# Perform PCA using prcomp
+pca_result <- prcomp(pca_data_standardized, center = TRUE, scale. = TRUE)
+
+# View the PCA result summary
+summary(pca_result)
+```
+
+```{r}
+pca_var <- pca_result$sdev^2
+pca_pve <- pca_var / sum(pca_var)
+pca_pve[1:10]
+cumsum(pca_pve[1:10])
+```
+
+```{r}
+library(ggplot2)
+png("pve.png", width = 800, height = 600)
+ggplot(data = data.frame(pve = pca_pve[1:10], cum_pve = cumsum(pca_pve[1:10]),
+PC = c(1,2,3,4,5,6,7,8,9,10)), aes(x=PC, y=pca_pve[1:10])) +
+geom_line(color="darkorange") + theme_bw() +
+  scale_x_continuous(breaks = 1:10) + 
+labs(x = "Principal Component", y="",
+title = "Proportion of Variance Explained") +
+  theme(plot.title = element_text(size = 20)) 
+```
+
+```{r}
+png("pve_cum.png", width = 800, height = 600)
+ggplot(data = data.frame(pve = pca_pve[1:10], cum_pve = cumsum(pca_pve[1:10]),
+PC = c(1,2,3,4,5,6,7,8,9,10)), aes(x=PC, y=cum_pve[1:10])) +
+geom_line(color="darkorange") + theme_bw()+
+  scale_x_continuous(breaks = 1:10) +
+labs(x = "Principal Component", y="",
+title = "Cumulative Proportion of Variance Explained") +
+  theme(plot.title = element_text(size = 20)) 
+```
+
+
+
+```{r}
+# Extract loadings (rotation matrix)
+loadings <- pca_result$rotation
+
+# Determine the number of principal components
+num_pcs <- ncol(loadings)
+
+# Create a function to get the top N important variables for each PC
+get_important_vars <- function(pc, top_n = 5) {
+  # Sort variables based on their absolute loadings in descending order
+  sorted_vars <- sort(abs(loadings[, pc]), decreasing = TRUE)
+  
+  # Select the top N important variables
+  top_vars <- names(sorted_vars)[1:top_n]
+  
+  return(top_vars)
+}
+
+# Set the number of important variables to extract per PC
+top_n <- 5
+
+# Initialize a list to store important variables for each PC
+important_vars <- list()
+
+# Loop through each principal component to get the top N important variables
+for (pc in 1:num_pcs) {
+  important_vars[[paste0("PC", pc)]] <- get_important_vars(pc, top_n)
+}
+
+# Print the important variables for each PC
+print(important_vars)
+
+```
+
+```{r}
+# Merge land use change data with CRP payment
+landuse_wide <- landuse_wide %>%
+  rename(FIPS = aoi)
+
+merged_df <- merge(illinoisdf_unique, landuse_wide, by = c("FIPS", "Year"), all.y = TRUE)
+```
+
+
+# PC1
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Woody Wetlands_Deciduous Forest")
+library(lfe)
+model0 <- felm(`Woody Wetlands_Deciduous Forest` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Woody Wetlands_Deciduous Forest` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Woody Wetlands_Deciduous Forest` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Barren_Corn")
+library(lfe)
+model0 <- felm(`Barren_Corn` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Barren_Corn` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Barren_Corn` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Corn_Barren")
+library(lfe)
+# Cluster by the 'Location' variable
+model0 <- felm(`Corn_Barren` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Corn_Barren` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Corn_Barren` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Barren_Soybeans")
+library(lfe)
+model0 <- felm(`Barren_Soybeans` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Barren_Soybeans` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Barren_Soybeans` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Soybeans_Barren")
+library(lfe)
+model0 <- felm(`Soybeans_Barren` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Soybeans_Barren` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Soybeans_Barren` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+# PC2
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Barren_Barren")
+library(lfe)
+model0 <- felm(`Barren_Barren` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Barren_Barren` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Barren_Barren` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Developed/Low Intensity_Developed/Low Intensity")
+library(lfe)
+model0 <- felm(`Developed/Low Intensity_Developed/Low Intensity` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Developed/Low Intensity_Developed/Low Intensity` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Developed/Low Intensity_Developed/Low Intensity` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+merged_df_Soybeans_Alfalfa <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, Soybeans_Alfalfa)
+library(lfe)
+# Cluster by the 'Location' variable
+model0 <- felm(Soybeans_Alfalfa ~ Total.Disbursement | Year + FIPS | 0 | 0, data = merged_df_Soybeans_Alfalfa)
+model1 <- felm(Soybeans_Alfalfa ~ Total.Disbursement | Year + FIPS | 0 | Year, data = merged_df_Soybeans_Alfalfa)
+model2 <- felm(Soybeans_Alfalfa ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = merged_df_Soybeans_Alfalfa)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, Soybeans_Corn)
+library(lfe)
+model0 <- felm(Soybeans_Corn ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(Soybeans_Corn ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(Soybeans_Corn ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, Corn_Soybeans)
+library(lfe)
+model0 <- felm(Corn_Soybeans ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(Corn_Soybeans ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(Corn_Soybeans ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+# PC3
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Corn_Developed/Open Space")
+library(lfe)
+model0 <- felm(`Corn_Developed/Open Space` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Corn_Developed/Open Space` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Corn_Developed/Open Space` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Developed/Open Space_Corn")
+library(lfe)
+model0 <- felm(`Developed/Open Space_Corn` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Developed/Open Space_Corn` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Developed/Open Space_Corn` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Soybeans_Developed/Open Space")
+library(lfe)
+model0 <- felm(`Soybeans_Developed/Open Space` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Soybeans_Developed/Open Space` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Soybeans_Developed/Open Space` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Developed/Open Space_Soybeans")
+library(lfe)
+# Cluster by the 'Location' variable
+model0 <- felm(`Developed/Open Space_Soybeans` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Developed/Open Space_Soybeans` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Developed/Open Space_Soybeans` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Developed/Low Intensity_Corn")
+library(lfe)
+model0 <- felm(`Developed/Low Intensity_Corn` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Developed/Low Intensity_Corn` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Developed/Low Intensity_Corn` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+# PC4
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Other Hay/Non Alfalfa_Grass/Pasture")
+library(lfe)
+model0 <- felm(`Other Hay/Non Alfalfa_Grass/Pasture` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Other Hay/Non Alfalfa_Grass/Pasture` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Other Hay/Non Alfalfa_Grass/Pasture` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+model3 <- felm(`Other Hay/Non Alfalfa_Grass/Pasture` ~ Total.Disbursement | Year + FIPS | 0 | FIPS + Year, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Corn_Grass/Pasture")
+library(lfe)
+model0 <- felm(`Corn_Grass/Pasture` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Corn_Grass/Pasture` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Corn_Grass/Pasture` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Alfalfa_Grass/Pasture")
+library(lfe)
+model0 <- felm(`Alfalfa_Grass/Pasture` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Alfalfa_Grass/Pasture` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Alfalfa_Grass/Pasture` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Other Hay/Non Alfalfa_Corn")
+library(lfe)
+model0 <- felm(`Other Hay/Non Alfalfa_Corn` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Other Hay/Non Alfalfa_Corn` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Other Hay/Non Alfalfa_Corn` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Winter Wheat_Grass/Pasture")
+library(lfe)
+model0 <- felm(`Winter Wheat_Grass/Pasture` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Winter Wheat_Grass/Pasture` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Winter Wheat_Grass/Pasture` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+# PC5
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Grass/Pasture_Other Hay/Non Alfalfa")
+library(lfe)
+model0 <- felm(`Grass/Pasture_Other Hay/Non Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Grass/Pasture_Other Hay/Non Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Grass/Pasture_Other Hay/Non Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Grass/Pasture_Herbaceous Wetlands")
+library(lfe)
+model0 <- felm(`Grass/Pasture_Herbaceous Wetlands` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Grass/Pasture_Herbaceous Wetlands` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Grass/Pasture_Herbaceous Wetlands` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Corn_Other Hay/Non Alfalfa")
+library(lfe)
+model0 <- felm(`Corn_Other Hay/Non Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Corn_Other Hay/Non Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Corn_Other Hay/Non Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Grass/Pasture_Alfalfa")
+library(lfe)
+model0 <- felm(`Grass/Pasture_Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Grass/Pasture_Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Grass/Pasture_Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Soybeans_Other Hay/Non Alfalfa")
+library(lfe)
+model0 <- felm(`Soybeans_Other Hay/Non Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Soybeans_Other Hay/Non Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Soybeans_Other Hay/Non Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+summary(model3)
+```
+
+# PC6
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Other Hay/Non Alfalfa_Alfalfa")
+library(lfe)
+model0 <- felm(`Other Hay/Non Alfalfa_Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Other Hay/Non Alfalfa_Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Other Hay/Non Alfalfa_Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Other Hay/Non Alfalfa_Other Hay/Non Alfalfa")
+library(lfe)
+model0 <- felm(`Other Hay/Non Alfalfa_Other Hay/Non Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Other Hay/Non Alfalfa_Other Hay/Non Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Other Hay/Non Alfalfa_Other Hay/Non Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Alfalfa_Other Hay/Non Alfalfa")
+library(lfe)
+model0 <- felm(`Alfalfa_Other Hay/Non Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Alfalfa_Other Hay/Non Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Alfalfa_Other Hay/Non Alfalfa` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Other Hay/Non Alfalfa_Corn")
+library(lfe)
+model0 <- felm(`Other Hay/Non Alfalfa_Corn` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Other Hay/Non Alfalfa_Corn` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Other Hay/Non Alfalfa_Corn` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
+```{r}
+df_fe <- merged_df  %>%
+  select(FIPS, Year, Total.Disbursement, "Grass/Pasture_Winter Wheat")
+library(lfe)
+model0 <- felm(`Grass/Pasture_Winter Wheat` ~ Total.Disbursement | Year + FIPS | 0 | 0, data = df_fe)
+model1 <- felm(`Grass/Pasture_Winter Wheat` ~ Total.Disbursement | Year + FIPS | 0 | Year, data = df_fe)
+model2 <- felm(`Grass/Pasture_Winter Wheat` ~ Total.Disbursement | Year + FIPS | 0 | FIPS, data = df_fe)
+# View the model summary
+summary(model0)
+summary(model1)
+summary(model2)
+```
+
