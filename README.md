@@ -9,3 +9,13 @@ You will have to change the filepath to be your own file path whenever new data 
 3. With the merged voter data and shapefile, we segregate the data per election years of the candidatevotes as a share of the total votes, and plot the winner candidate in each county. We do this for 6 elections, with the same code, just modified per each election. 
 4. Then we go back to the CRP payment data that is called "CRP_data.csv", chunk it and take the mean by each payment year. For example, the disbursed amount that is done in the year 2008. Then it does the same for 2009, 2010, etc. We change this into a pivot table of each county level final means to work with that dataframe. In an attempt to look at trends, we aggregate the years prior to elections and then merge this data to the shapefile for plotting the presidential election years of the payment data. 
 5. Once the data are merged together, we then take the log of each the aggregated years and plot the logged amount across each county from 2008, 2009-2012, 2013-2016, and 2017-2020.
+#### 4.0_CRP_Landuse:
+"landuse_raw" is the folder storing the raw data, including:
+	(1) 2008-2023, area of different land use type within each county. "2008_tab", "2009_tab",...
+	(2) US county shape file "us_counties_2017"
+	(3) Area of each county, "us_county_area"
+	(4) CRP payment data from Khashi's output, "CRP_data"
+"landuse_output" is the output folder
+In the Jupiter notebook "4.0_CRP_Landuse", you can type "change directory" to find all the places where you need to change the directory
+"data_raw" corresponds to the directory you store the "landuse_raw"
+"output_path" corresponds to the directory you store the "landuse_output"
