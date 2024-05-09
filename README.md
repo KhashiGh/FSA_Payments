@@ -1,4 +1,5 @@
 # FSA_Payments
+#### Ths repository made available through collective contribution of Yizun Yan (4.0_CRP_Landuse), Madison Levine(3.0_CRP_Voter_Figs), Cheng bi(5.0_CRP_Land_Use_Change_Analysis), and Khashi Ghorbani(1.0_Data_DL, 2.0_General_Fig). 
 #### Each notebook covers a section of FSA payment analysis. 
 #### 1.0_Data_DL: This notebook covers the steps to retrieve data from USDA website and describes potential structures for the dataset. 
 #### 2.0_General_Fig: This notebook contains a couple of general figures to present data over time and over location. 
